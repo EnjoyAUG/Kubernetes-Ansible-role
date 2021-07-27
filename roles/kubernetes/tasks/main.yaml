@@ -51,7 +51,7 @@
 - include_tasks: synchronize.yaml
 - block:
     - name: kube-controller-manager:Deploy the kube-controller-manager 
-      script: kube-controller-manager.sh https://{{inventory_hostname}}:6443 {{CONTROLLER_SCHEDULER}}
+      script: kube-controller-manager.sh https://{{MASTER_VIP}}:{{KUBE_APISERVER_PORT}} {{CONTROLLER_SCHEDULER}}
     - name: kube-controller-manager:Check kube-controller-manager status
       shell: /opt/kubernetes/bin/kube-controller-manager --version
       register: kubecontrollermanager_check_result

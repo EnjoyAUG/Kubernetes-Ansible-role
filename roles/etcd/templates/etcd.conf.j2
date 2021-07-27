@@ -1,0 +1,20 @@
+{% set etcd_cluster=[] %}
+{% set node_hosts = groups.etcd %}
+{% for host in node_hosts -%}
+  {% set etcd_ip = hostvars[host].inventory_hostname | default(host) -%}
+  {% set etcd_port = 2380 -%}
+  {% set etcd_prefix = "https://" -%}
+  {% set _ = etcd_cluster.append("%s=%s%s:%s" % (hostvars[host]['NODE_NAME'],etcd_prefix,etcd_ip,etcd_port)) -%}
+{% endfor -%}
+#[Member]
+ETCD_NAME="{{ NODE_NAME }}"
+ETCD_DATA_DIR="/var/lib/etcd/default.etcd"
+ETCD_LISTEN_PEER_URLS="https://{{inventory_hostname}}:2380"
+ETCD_LISTEN_CLIENT_URLS="https://{{inventory_hostname}}:2379"
+
+#[Clustering]
+ETCD_INITIAL_ADVERTISE_PEER_URLS="https://{{inventory_hostname}}:2380"
+ETCD_ADVERTISE_CLIENT_URLS="https://{{inventory_hostname}}:2379"
+ETCD_INITIAL_CLUSTER="{{ etcd_cluster | join(',')}}"
+ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster"
+ETCD_INITIAL_CLUSTER_STATE="new"

@@ -1,0 +1,4 @@
+ETCD_CLIENT_NODES: "{% for h in groups['etcd'] %}https://{{ h }}:2379,{% endfor %}"
+ETCD_CLIENT_CLUSTER: "{{ ETCD_CLIENT_NODES.rstrip(',') }}"
+HOSTS: "{% for h in groups['etcd'] %}'\"{{ h }}\"',{% endfor %}"
+CER_HOSTS: "{{ HOSTS.rstrip(',') }}"

@@ -1,0 +1,52 @@
+- name: Create some directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop: 
+    - /opt/etcd/bin
+    - /opt/etcd/cfg
+    - /opt/etcd/ssl
+    - /root/TLS/etcd 
+
+- name: Download all required bin files
+  copy: 
+    src: '{{ item.src }}'
+    dest: '{{ item.dest }}'
+    mode: 0644
+  with_items:
+    - { src: etcd-v3.4.9/, dest: /opt/etcd }
+- name: Generate the etcd certificate
+  script: certificate-etcd.sh {{ CER_HOSTS }}
+  when: NODE_NAME == "etcd1"
+- name: Fetch etcd certificates to the ansible loaclhost
+  fetch:
+    src: "{{ item }}"
+    dest: /root/binary-kubernetes-double-master/certificate-etcd/ 
+    flat: yes
+    validate_checksum: no
+  with_fileglob: 
+    - /root/TLS/etcd/*
+  when: NODE_NAME == "etcd1"
+- name: Distribute certificates to all etcd cluster nodes
+  copy:
+    src: /root/binary-kubernetes-double-master/certificate-etcd/
+    dest: /opt/etcd/ssl
+
+- name: Deploy etcd cluster
+  script: etcd.sh
+- name: Generate etcd configration file
+  template: src=etcd.conf.j2 dest=/opt/etcd/cfg/etcd.conf 
+- name: Manager etcd service by systemd
+  systemd:
+    name: etcd
+    daemon_reload: yes
+    enabled: yes
+    state: started
+
+- name: Check etcd cluster status
+  shell: ETCDCTL_API=3 /opt/etcd/bin/etcdctl --cacert=/opt/etcd/ssl/ca.pem --cert=/opt/etcd/ssl/server.pem --key=/opt/etcd/ssl/server-key.pem --endpoints="{{ETCD_CLIENT_CLUSTER}}" endpoint health
+  register: result
+- debug: 
+    var: result.stderr_lines
+    verbosity: 0

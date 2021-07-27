@@ -1,0 +1,250 @@
+- name: Create some directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop: 
+    - /root/TLS/k8s 
+    - /opt/kubernetes/bin 
+    - /opt/kubernetes/cfg 
+    - /opt/kubernetes/ssl
+    - /opt/kubernetes/logs 
+
+- name: Download all required bin files
+  copy: 
+    src: '{{ item.src }}'
+    dest: '{{ item.dest }}'
+    mode: 0755
+  with_items:
+    - { src: cfssl/, dest: /usr/local/bin }
+    - { src: kubernetes-v1.20.8/, dest: /opt/kubernetes }
+
+#kube-apiserver
+- name: kube-apiserver:Generate the kube-apiserver certificate
+  script: certificate-kube-apiserver.sh {{ CER_HOSTS }} {{ MASTER_VIP }}
+  run_once: true
+  when: inventory_hostname in groups.get('master', [])
+- include_tasks: synchronize.yaml
+- block:
+    - name: kube-apiserver:Generate kube-apiserver configration file
+      template: src=kube-apiserver.conf.j2 dest=/opt/kubernetes/cfg/kube-apiserver.conf
+    - name: kube-apiserver:Deploy the kube-apiserver
+      script: kube-apiserver.sh
+    - name: kube-apiserver:Check kube-apiserver status
+      shell: /opt/kubernetes/bin/kube-apiserver --version
+      register: kubeapiserver_check_result
+    - debug:
+        var: kubeapiserver_check_result.stdout_lines
+        verbosity: 0
+    - wait_for: host={{ inventory_hostname }} port={{ KUBEAPI_SERVER_PORT_REAL }}
+  rescue:
+    - fail: msg="kube-apiserver deploy failed"
+  always:
+    - debug: msg="kube-apiserver deploy sucessfully"
+  when: inventory_hostname in groups.get('master', [])
+
+#kube-controller-manager
+- name: kube-controller-manager:Generate the kube-controller-manager certificate
+  script: certificate-controller-manager.sh
+  run_once: true
+  when: '"master" in group_names'
+- include_tasks: synchronize.yaml
+- block:
+    - name: kube-controller-manager:Deploy the kube-controller-manager 
+      script: kube-controller-manager.sh https://{{inventory_hostname}}:6443 {{CONTROLLER_SCHEDULER}}
+    - name: kube-controller-manager:Check kube-controller-manager status
+      shell: /opt/kubernetes/bin/kube-controller-manager --version
+      register: kubecontrollermanager_check_result
+    - debug:
+        var: kubecontrollermanager_check_result.stdout_lines
+        verbosity: 0
+  rescue:
+    - fail: msg="kube-controller-manager deploy failed"
+  always:
+    - debug: msg="kube-controller-manager deploy sucessfully"
+  run_once: true
+  when: '"master" in group_names'
+
+#kube-scheduler
+- name: kube-scheduler:Generate the kube-scheduler certificate
+  script: certificate-scheduler.sh
+  run_once: true
+  when: '"master" in group_names'
+- include_tasks: synchronize.yaml
+- block:
+    - name: kube-scheduler:Deploy the kube-scheduler
+      script: kube-scheduler.sh https://{{MASTER_VIP}}:{{KUBE_APISERVER_PORT}} {{CONTROLLER_SCHEDULER}}
+    - name: kube-scheduler:Check kube-scheduler status
+      shell: /opt/kubernetes/bin/kube-scheduler --version
+      register: kubescheduler_check_result
+    - debug:
+        var: kubescheduler_check_result.stdout_lines
+        verbosity: 0
+  rescue:
+    - fail: msg="kube-scheduler deploy failed"
+  always:
+    - debug: msg="kube-scheduler deploy sucessfully"
+  run_once: true
+  when: '"master" in group_names'
+
+
+#kube-admin
+- name: kubelet:Decompression kubernetes compression package on worker nodes
+  command: tar zxvf kubernetes-server-linux-amd64.tar.gz 
+  args:
+    chdir: /opt/kubernetes/
+    creates: /opt/kubernetes/kubernetes
+- name: kube-admin:Generate the kube-admin certificate
+  script: certificate-admin.sh
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-admin:Register names of kube-admin certificate as ansible vairable
+  shell: (cd /root/TLS/k8s; find -maxdepth 1 -name '*admin*' -type f ) | cut -d'/' -f2
+  register: files_to_copy
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-admin:Fetch kube-admin certificates to the ansible localhost
+  fetch:
+    src: /root/TLS/k8s/{{ item }}
+    dest: /root/binary-kubernetes-double-master/certificate-k8s/ 
+    flat: yes
+    validate_checksum: no
+  with_items: 
+    - "{{ files_to_copy.stdout_lines }}"
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-admin:Distribute kube-admin certificates to master and node nodes
+  copy:
+    src: /root/binary-kubernetes-double-master/certificate-k8s/
+    dest: /opt/kubernetes/ssl
+- name: kube-admin:Gernerate kube-admin kubeconfig
+  script: kube-admin.sh https://{{MASTER_VIP}}:{{KUBE_APISERVER_PORT}}
+- block:
+    - wait_for: host=127.0.0.1 port=10251
+    - wait_for: host=127.0.0.1 port=10252
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-admin:Check kube-admin status
+  shell: /usr/bin/kubectl get cs
+  register: kube_admin_check_result
+- debug:
+    var: kube_admin_check_result.stdout_lines
+    verbosity: 0
+  run_once: true
+  when: '"master" in group_names'
+
+#kubelet
+- name: kubelet:Authorizes kubete-bootstrap user request the certificate
+  shell: kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap 
+  run_once: true
+  when: '"master" in group_names'
+- name: kubelet:Fetch kube-apiserver token.cvs from master node
+  fetch:
+    src: /opt/kubernetes/cfg/token.csv
+    dest: /tmp/ 
+    flat: yes
+    validate_checksum: no
+  run_once: true
+  when: '"master" in group_names'
+- name: kubelet:Deploy kubelet on master and worker node
+  script: kubelet.sh https://{{MASTER_VIP}}:{{KUBE_APISERVER_PORT}} {{ lookup('file','/tmp/token.csv') | regex_search("^[0-9a-zA-Z]*") }}
+- systemd:
+    name: kubelet
+    state: restarted
+- name: Wait_for kubelet bootstrap
+  script: check-node.sh
+  run_once: true
+  when: '"master" in group_names'
+- name: kubelet:Approve certificate request
+  shell: kubectl certificate approve $(kubectl get csr | grep "Pending" | awk '{print $1}')
+  run_once: true
+  when: '"master" in group_names'
+- pause: seconds=10
+- name: kubelet:Check kubelet status
+  shell: kubectl get csr,nodes
+  register: kubelet_check_result
+  run_once: true
+  when: '"master" in group_names'
+- debug:
+    var: kubelet_check_result.stdout_lines
+    verbosity: 0
+  run_once: true
+  when: '"master" in group_names'
+
+
+#kube-proxy
+- name: kube-proxy:Generate the kube-proxy certificate
+  script: certificate-kube-proxy.sh
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-proxy:Register names of kube-proxy certificate as ansible vairable
+  shell: (cd /root/TLS/k8s; find -maxdepth 1 -name '*kube-proxy*' -type f ) | cut -d'/' -f2
+  register: files_to_copy
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-proxy:Fetch kube-proxy certificates to the ansible localhost
+  fetch:
+    src: /root/TLS/k8s/{{ item }}
+    dest: /root/binary-kubernetes-double-master/certificate-k8s/ 
+    flat: yes
+    validate_checksum: no
+  with_items: 
+    - "{{ files_to_copy.stdout_lines }}"
+  run_once: true
+  when: '"master" in group_names'
+- name: kube-proxy:Distribute kube-proxy certificates to master and worker nodes
+  copy:
+    src: /root/binary-kubernetes-double-master/certificate-k8s/
+    dest: /opt/kubernetes/ssl
+- name: kube-proxy:Deploy kube-proxy
+  script: kube-proxy.sh https://{{MASTER_VIP}}:{{KUBE_APISERVER_PORT}}
+- name: kube-proxy:Check kube-proxy status
+  shell: systemctl status  kube-proxy.service
+  register: kube_proxy_check_result
+  tags: proxy
+- debug:
+    var: kube_proxy_check_result.stdout_lines
+    verbosity: 0
+  tags: proxy
+
+#Calico
+- name: Calico:Download calico YAML file
+  get_url:
+    url: '{{ item.url }}'
+    dest: '{{ item.dest }}'
+    mode: 0755
+  with_items:
+    - { url: 'https://docs.projectcalico.org/manifests/calico.yaml', dest: /opt/kubernetes/cfg/calico.yaml }
+    - { url: 'https://github.com/projectcalico/calicoctl/releases/download/v3.19.1/calicoctl', dest: /usr/bin/calicoctl }
+  run_once: true
+  when: '"master" in group_names'
+- name: Calico:Deploy calico
+  shell: "{{ item }}"
+  loop:
+    - kubectl apply -f /opt/kubernetes/cfg/calico.yaml
+    - kubectl apply -f /opt/kubernetes/cfg/apiserver-to-kubelet-rbac.yaml
+  run_once: true
+  when: '"master" in group_names'
+- name: Calico:make configuration for calicoctl
+  script: calicoctl.sh {{ ETCD_CLIENT_CLUSTER }}
+  tags: calicoctl
+  run_once: true
+  when: '"master" in group_names'
+- name: Calico:wait for calico port started
+  wait_for: port=9099 state=started
+- name: Calico:Check calico status
+  shell: calicoctl node status; calicoctl get nodes
+  register: calico_check_result
+  run_once: true
+  when: '"master" in group_names'
+- debug:
+    var: calico_check_result.stdout_lines
+    verbosity: 0
+  run_once: true
+  when: '"master" in group_names'
+
+#coredns
+- name: Deploy coredns for kubernetes service
+  script: coredns.sh 
+  run_once: true
+  when: '"master" in group_names'

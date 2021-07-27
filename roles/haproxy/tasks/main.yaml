@@ -1,0 +1,65 @@
+- name: Create some directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop: 
+    - /opt/haproxy/bin
+    - /opt/haproxy/cfg 
+    - /opt/haproxy/logs 
+
+- name: Install some Packages for compiling lua
+  package: 
+    name: "{{ item }}" 
+    state: latest
+  with_items: [ gcc, build-essential, libssl-dev, zlib1g-dev, libpcre3, libpcre3-dev, libsystemd-dev, libreadline-dev ]
+  register: result
+  until: result is succeeded
+
+- name: Download lua-5.3 package
+  unarchive: 
+    src: http://www.lua.org/ftp/lua-5.3.5.tar.gz
+    dest: /usr/local/src/
+    remote_src: yes
+
+- name: Install lua-5.3
+  shell: cd /usr/local/src/lua-5.3.5/src/; make linux
+
+- shell: ./lua -v
+  args: 
+    chdir: /usr/local/src/lua-5.3.5/src/
+  register: lua_version
+
+- assert:
+    that: "'5.3.5' in lua_version.stdout"
+- debug:  msg="Lua 5.3.5 has been installed Sucessfully!"
+  when: "'5.3.5' in lua_version.stdout"
+- name: Create some directory for haproxy
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop:
+    - /opt/haproxy/bin
+    - /opt/haproxy/cfg
+    - /opt/haproxy/logs
+- name: Download haproxy package
+  unarchive: 
+   #src: https://www.haproxy.org/download/2.4/src/haproxy-2.4.2.tar.gz
+    src: haproxy-2.4.2.tar.gz
+    dest: /opt/haproxy
+   #remote_src: yes
+- name: Install haproxy by compiling!
+  shell: make -j `lscpu |awk 'NR==4{print $2}'` ARCH=x86_64 TARGET=linux-glibc USE_PCRE=1 USE_OPENSSL=1 USE_ZLIB=1 USE_SYSTEMD=1 USE_CPU_AFFINITY=1 USE_LUA=1 LUA_INC=/usr/local/src/lua-5.3.5/src/ LUA_LIB=/usr/local/src/lua-5.3.5/src/ PREFIX=/apps/haproxy && make install PREFIX=/opt/haproxy
+  args:
+    chdir: /opt/haproxy/haproxy-2.4.2/
+- shell: /opt/haproxy/sbin/haproxy -v | grep -i version
+  register: haproxy_version
+- debug: var=haproxy_version.stdout 
+- group: name=haproxy
+- user: name=haproxy group=haproxy
+- template: src=haproxy.cfg.j2 dest=/opt/haproxy/cfg/haproxy.cfg
+- name: Start haproxy service
+  shell: /opt/haproxy/sbin/haproxy -W -f /opt/haproxy/cfg/haproxy.cfg  -q -p /opt/haproxy/haproxy.pid; ss -tnlp | grep haproxy
+  register: haproxy_process
+- debug: var=haproxy_process.stdout

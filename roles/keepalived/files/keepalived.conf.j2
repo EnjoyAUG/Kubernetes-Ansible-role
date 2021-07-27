@@ -1,0 +1,42 @@
+global_defs {
+   notification_email {
+       root@localhost
+   }
+   script_user root 
+   router_id {{ KEEPALIVED_ROLE }}
+   smtp_server 127.0.0.1
+   vrrp_mcast_group4 224.1.101.33
+
+}
+
+vrrp_script chk_haproxy {
+    script "/bin/bash -c 'if [[ $(netstat -nlp | grep 7443) ]]; then exit 0; else exit 1; fi'"  # haproxy 检测
+    interval 2  # 每2秒执行一次检测
+    weight -11 # 权重变化
+    fall 2
+    rise 3
+}
+
+vrrp_instance VI_1 {
+  interface enp4s3
+  state {{ KEEPALIVED_ROLE }} # backup节点设为BACKUP
+  virtual_router_id 71 # id设为相同，表示是同一个虚拟路由组
+  priority {{ KEEPALIVED_WEIGHT }} #初始权重
+  advert_int 1
+
+#  unicast_peer {}
+
+  virtual_ipaddress {
+     {{ MASTER_VIP }}/24 #vip
+  }
+
+  authentication {
+    auth_type PASS
+    auth_pass sG6enKo2
+  }
+
+  track_script {
+      chk_haproxy
+  }
+
+}

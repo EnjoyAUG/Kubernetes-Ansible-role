@@ -1,0 +1,49 @@
+global
+    log         127.0.0.1 local2
+
+    chroot      /opt/haproxy
+    pidfile     /opt/haproxy/haproxy.pid
+    maxconn     4000
+    user        haproxy
+    group       haproxy
+    daemon
+
+    # turn on stats unix socket
+    stats socket /opt/haproxy/stats
+
+defaults
+    mode                    tcp #支持https
+    log                     global
+#   option                  httplog
+    option                  dontlognull
+    option http-server-close
+#   option forwardfor       except 127.0.0.0/8
+    option                  redispatch
+    retries                 3
+    timeout http-request    10s
+    timeout queue           1m
+    timeout connect         10s
+    timeout client          1m
+    timeout server          1m
+    timeout http-keep-alive 10s
+    timeout check           10s
+    maxconn                 3000
+
+
+    #use_backend static          if url_static
+    #default_backend             app
+listen stats #网页形式
+    mode http
+    bind *:9443
+    stats  uri       /admin/stats
+    monitor-uri      /monitoruri
+frontend showDoc
+   
+    bind *:7443
+    use_backend      kube-apiserver #必须和下面的名称一致
+
+backend kube-apiserver 
+    balance     roundrobin
+{%- for h in groups['haproxy'] %} 
+    server {{ hostvars[h]['HAPROXY_BACKEND'] }} {{ h }}:6443 check
+{% endfor -%}

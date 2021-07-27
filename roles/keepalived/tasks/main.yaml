@@ -1,0 +1,41 @@
+- name: Create some directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop: 
+    - /opt/keepalived/bin
+    - /opt/keepalived/cfg 
+    - /opt/keepalived/logs
+
+- name: Create some directory for keepalived
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop:
+    - /opt/keepalived/bin
+    - /opt/keepalived/cfg
+    - /opt/keepalived/logs
+- name: Download keepalived package
+  unarchive: 
+    src: https://www.keepalived.org/software/keepalived-2.2.2.tar.gz
+    dest: /opt/keepalived
+    remote_src: yes
+- name: Install keepalived by compiling!
+  shell: ./configure --prefix=/opt/keepalived && make && make install
+  args:
+    chdir: /opt/keepalived/keepalived-2.2.2
+
+- group: name=keepalived
+- user: name=keepalived group=keepalived
+- template: src=keepalived.conf.j2 dest=/opt/keepalived/cfg/keepalived.conf
+- name: Start keepalived service
+  shell: /opt/keepalived/sbin/keepalived -f /opt/keepalived/cfg/keepalived.conf --log-detail --pid /opt/keepalived/keepalived.pid; ps -ef | grep keepalived
+  register: keepalived_process
+- debug: var=keepalived_process.stdout
+- name: Wait for kube-apiserver vip up
+  wait_for: host="{{ MASTER_VIP }}" port=22
+  register: ping_result 
+- debug: msg="kube-apiserver VIP is up sucessfully!"
+  when: ping_result|changed

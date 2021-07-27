@@ -1,0 +1,23 @@
+- name: Create some directory
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop: 
+    - /opt/docker 
+
+- name: Download all required bin files
+  copy: 
+    src: '{{ item.src }}'
+    dest: '{{ item.dest }}'
+    mode: 0755
+  with_items:
+    - { src: docker-20.10.7/, dest: /opt/docker }
+- name: Deploy container engine--docker
+  script: docker.sh
+- name: Check container engine docker status
+  shell: docker version | egrep -A 1 'Client|Engine'
+  register: docker_check_result
+- debug:
+    var: docker_check_result.stdout_lines
+    verbosity: 0

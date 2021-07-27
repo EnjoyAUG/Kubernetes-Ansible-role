@@ -1,0 +1,9 @@
+ETCD_CLIENT_NODES: "{% for h in groups['etcd'] %}https://{{ h }}:2379,{% endfor %}"
+ETCD_CLIENT_CLUSTER: "{{ ETCD_CLIENT_NODES.rstrip(',') }}"
+HOSTS: "{% for h in groups['etcd'] %}'\"{{ h }}\"',{% endfor %}"
+CER_HOSTS: "{{ HOSTS.rstrip(',') }}"
+MASTER_VIP: 192.168.81.201
+CONTROLLER_SCHEDULER: 192.168.81.197
+KUBEAPI_SERVER_PORT_REAL: 6443
+SERVICE_CLUSTER_IP_RANGE: "10.0.0.0/24"
+KUBE_APISERVER_PORT: "7443"

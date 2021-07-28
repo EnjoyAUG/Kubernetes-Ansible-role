@@ -1,0 +1,5 @@
+- name: synchronize master certificates to all nodes
+  synchronize:
+    src: /root/TLS/k8s/
+    dest: /opt/kubernetes/ssl/
+  delegate_to: "{{ MASTER_IP }}"

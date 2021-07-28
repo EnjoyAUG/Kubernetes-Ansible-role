@@ -1,0 +1,70 @@
+- name: Prerequisites:/etc/hosts
+  blockinfile:
+    path: /etc/hosts
+    block: |
+           192.168.81.197 master k8s-master-01
+           192.168.81.198 master k8s-master-02
+           192.168.81.199 node1 k8s-worker-01
+           192.168.81.200 node2 k8s-worker-02
+- name: Prerequisites:resolve.conf
+  lineinfile:
+    path: /etc/resolv.conf
+    regexp: '^nameserver 114.114.114.114'
+    insertbefore: '^nameserver '
+    line: 'nameserver 114.114.114.114'
+- name: Prerequisites:br_netfilter
+  modprobe:
+    name: br_netfilter
+    state: present
+- name: Prerequisites:sysctl
+  sysctl:
+    name: "{{ item }}"
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    value: 1
+    sysctl_set: yes
+    state: present
+    reload: yes
+  with_items:
+    - net.ipv4.ip_forward
+    - net.bridge.bridge-nf-call-ip6tables
+    - net.bridge.bridge-nf-call-iptables
+- name: Set hostname
+  hostname:
+    name: "{{ HOSTNAME }}"
+- name: Install the packages "chrony/conntrack/rsync"
+  package:
+    name: "{{ item }}" 
+    state: present
+  with_items:
+    - chrony 
+    - conntrack
+    - rsync
+- name: Resolving prerequisites
+  script: requirement.sh 
+  #  - name: Create some directory
+  #    file:
+  #      path: "{{ item }}"
+  #      state: directory
+  #      mode: 0755
+  #    loop: 
+  #      - /opt/etcd/bin
+  #      - /opt/etcd/cfg
+  #      - /opt/etcd/ssl
+  #      - /root/TLS/etcd 
+  #      - /root/TLS/k8s 
+  #      - /opt/docker 
+  #      - /opt/kubernetes/bin 
+  #      - /opt/kubernetes/cfg 
+  #      - /opt/kubernetes/ssl
+  #      - /opt/kubernetes/logs 
+  #
+  #  - name: Download all required bin files
+  #    copy: 
+  #      src: '{{ item.src }}'
+  #      dest: '{{ item.dest }}'
+  #      mode: 0755
+  #    with_items:
+  #      - { src: cfssl/, dest: /usr/local/bin }
+  #      - { src: etcd/, dest: /opt/etcd }
+  #      - { src: docker-20.10.7/, dest: /opt/docker }
+  #      - { src: kubernetes-v1.20.8/, dest: /opt/kubernetes }

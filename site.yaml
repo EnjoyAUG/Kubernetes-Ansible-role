@@ -1,0 +1,53 @@
+---
+- hosts:
+    - master
+    - worker
+  remote_user: root
+  gather_facts: false
+  pre_tasks:
+    - import_tasks: raw_install_python.yaml
+    - import_tasks: requirement.yaml
+
+- hosts:
+    - master
+  remote_user: root
+  gather_facts: false
+  vars_files:
+    - vars/main.yaml
+  tasks:
+    - block:
+        - import_role:
+            name: haproxy
+        - import_role:
+            name: keepalived
+      when: 
+        - "groups['master'] | length > 1"
+
+- hosts:
+    - master
+    - worker
+  remote_user: root
+  gather_facts: false
+  tasks:
+    - import_role:
+        name: etcd
+
+- hosts:
+    - master
+    - worker
+  remote_user: root
+  gather_facts: false
+  tasks:
+    - import_role:
+        name: docker
+
+- hosts:
+    - master
+    - worker
+  remote_user: root
+  gather_facts: false
+  vars_files:
+    - vars/main.yaml
+  tasks:
+    - import_role:
+        name: kubernetes

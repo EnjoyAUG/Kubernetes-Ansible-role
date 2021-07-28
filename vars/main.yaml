@@ -1,0 +1,6 @@
+MASTER_VIP: 192.168.81.201
+MASTER_IP: "{{ (groups['master'] | length > 1 ) | ternary(MASTER_VIP, groups['master'][0] ) }}"
+KUBEAPI_SERVER_PORT_REAL: "{{DEFINED_API_PORT | default(6443) }}"
+KUBE_APISERVER_VPORT: "{{ DEFINED_PORT  | default(7443) }}"
+KUBE_APISERVER_PORT:  "{{ (groups['master'] | length > 1)  | ternary(KUBE_APISERVER_VPORT,KUBEAPI_SERVER_PORT_REAL) }}"
+

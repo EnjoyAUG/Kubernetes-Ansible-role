@@ -1,0 +1,6 @@
+ETCD_CLIENT_NODES: "{% for h in groups['cluster'] %}https://{{ h }}:2379,{% endfor %}"
+ETCD_CLIENT_CLUSTER: "{{ ETCD_CLIENT_NODES.rstrip(',') }}"
+HOSTS: "{% for h in groups['cluster'] %}'\"{{ h }}\"',{% endfor %}"
+CER_HOSTS: "{{ HOSTS.rstrip(',') }}"
+CONTROLLER_SCHEDULER: "{{ groups['master'] | first }}"
+SERVICE_CLUSTER_IP_RANGE: "10.0.0.0/24"
